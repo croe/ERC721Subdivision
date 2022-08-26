@@ -25,10 +25,11 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
     using Counters for Counters.Counter;
 
     Counters.Counter private _tokenIdTracker;
-    uint256 private _basePrice;
-    uint256 private _closingTime; // 2022-08-01 UnitTime(seconds) 1659285295
+    uint256 public basePrice;
+    uint256 public closingTime; // 2022-08-01 UnitTime(seconds) 1659285295
     address private _recipient;
-    mapping(address => BidInfo) public _bidInfoMap;
+    bool private _isWithdrawn;
+    mapping(address => BidInfo) private _bidInfoMap;
 
     struct BidInfo {
         uint256 totalBidValue;
@@ -45,25 +46,17 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
         string memory name,
         string memory symbol,
         address recipient,
-        uint256 basePrice,
-        uint256 closingTime
+        uint256 _basePrice,
+        uint256 _closingTime
     ) ERC721(name, symbol) {
         _recipient = recipient;
-        _basePrice = basePrice;
-        _closingTime = closingTime;
+        basePrice = _basePrice;
+        closingTime = _closingTime;
     }
 
     modifier hasClosed (bool closed) {
-        require(closed ? block.timestamp > _closingTime : block.timestamp < _closingTime);
+        require(closed ? block.timestamp > closingTime : block.timestamp < closingTime);
         _;
-    }
-
-    receive() external payable {}
-
-    fallback() external payable {}
-
-    function getBalance() public view returns (uint) {
-        return address(this).balance;
     }
 
     function totalSupply() external view returns (uint256) {
@@ -71,7 +64,7 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
     }
 
     function setClosingTime(uint256 newClosingTime) external onlyOwner {
-        _closingTime = newClosingTime;
+        closingTime = newClosingTime;
     }
 
     function setReceiver(address newRecipient) external onlyOwner {
@@ -79,30 +72,32 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
     }
 
     function buy() external payable hasClosed(false) {
-        require(msg.value >= (_basePrice / (_tokenIdTracker.current() + 1)), "Incorrect value");
+        require(msg.value >= (basePrice / (_tokenIdTracker.current() + 1)), "Incorrect value");
         _bidInfoMap[msg.sender].totalBidAmount++;
         _bidInfoMap[msg.sender].totalBidValue += msg.value;
-        _safeMint(msg.sender, _tokenIdTracker.current());
         _tokenIdTracker.increment();
+        _safeMint(msg.sender, _tokenIdTracker.current());
     }
 
     function latestPrice() external view returns (uint256) {
-        return _basePrice / (_tokenIdTracker.current() + 1);
+        return basePrice / (_tokenIdTracker.current() + 1);
     }
 
     function getRefund() external hasClosed(true) {
-        require(_bidInfoMap[msg.sender].refunded == false, "Incorrect value");
+        require(_bidInfoMap[msg.sender].refunded == false, "You has been refunded");
         _bidInfoMap[msg.sender].refunded = true;
-        uint256 refundValue = _bidInfoMap[msg.sender].totalBidValue - (_bidInfoMap[msg.sender].totalBidAmount * (_basePrice / (_tokenIdTracker.current() + 1)));
+        uint256 refundValue = _bidInfoMap[msg.sender].totalBidValue - (_bidInfoMap[msg.sender].totalBidAmount * (basePrice / (_tokenIdTracker.current() + 1)));
         (bool sent, bytes memory data) = payable(msg.sender).call{value: refundValue}("");
         require(sent, "Failed to send Ether");
         emit Refund(msg.sender, refundValue);
     }
 
     function withdraw() external override onlyOwner hasClosed(true) {
-        (bool sent, bytes memory data) = _recipient.call{value: _basePrice}("");
+        require(!_isWithdrawn, "Already withdrawn");
+        (bool sent, bytes memory data) = _recipient.call{value: basePrice}("");
         require(sent, "Failed to send Ether");
-        emit Withdrawal(_basePrice, block.timestamp);
+        _isWithdrawn = true;
+        emit Withdrawal(basePrice, block.timestamp);
     }
 
     function withdrawAll() external override onlyOwner hasClosed(true) {
@@ -118,7 +113,7 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
         // string memory json = Base64.encode(bytes(string(abi.encodePacked('{"name": "MY NFT #' + tokenId +'","description": "","image": "","external_url": ""}'))));
         string memory json = Base64.encode(bytes(string(abi.encodePacked(
             '{"name": "MY NFT #',
-            Strings.toString(tokenId + 1),
+            Strings.toString(tokenId),
             '","description": "","image": "","external_url": ""}'
         ))));
         return string(abi.encodePacked('data:application/json;base64,', json));

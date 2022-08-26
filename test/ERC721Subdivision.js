@@ -49,12 +49,12 @@ describe("ERC721Subdivision", function () {
       const openTx = await contract.connect(owner).setClosingTime(1661958000);
       const mint0Tx = await contract.connect(owner).buy({value: 10000000000});
       await mint0Tx.wait();
-      const token0 = await contract.tokenURI(0);
+      const token0 = await contract.tokenURI(1);
       console.log(token0);
       expect(await contract.totalSupply()).to.eq(1);
       const mint1Tx = await contract.connect(owner).buy({value: 5000000000});
       await mint1Tx.wait();
-      const token1 = await contract.tokenURI(1);
+      const token1 = await contract.tokenURI(2);
       console.log(token1);
       expect(await contract.totalSupply()).to.eq(2);
       const closeTx = await contract.connect(owner).setClosingTime(1659285295);
