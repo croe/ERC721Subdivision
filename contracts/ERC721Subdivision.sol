@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-pragma solidity >=0.7.0 <0.9.0;
+pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
@@ -15,7 +15,7 @@ interface IERC721Subdivision {
     function setReceiver(address newReceiver) external;
     function buy() external payable;
     function latestPrice() external view returns (uint256);
-    function getRefund() external;
+    function refund() external;
     function withdraw() external;
     function withdrawAll() external;
 
@@ -83,7 +83,7 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
         return basePrice / (_tokenIdTracker.current() + 1);
     }
 
-    function getRefund() external hasClosed(true) {
+    function refund() external hasClosed(true) {
         require(_bidInfoMap[msg.sender].refunded == false, "You has been refunded");
         _bidInfoMap[msg.sender].refunded = true;
         uint256 refundValue = _bidInfoMap[msg.sender].totalBidValue - (_bidInfoMap[msg.sender].totalBidAmount * (basePrice / (_tokenIdTracker.current() + 1)));
@@ -115,6 +115,13 @@ contract ERC721Subdivision is IERC721Subdivision, ERC721Burnable, Ownable {
             '{"name": "MY NFT #',
             Strings.toString(tokenId),
             '","description": "","image": "","external_url": ""}'
+        ))));
+        return string(abi.encodePacked('data:application/json;base64,', json));
+    }
+
+    function contractURI() public view returns (string memory) {
+        string memory json = Base64.encode(bytes(string(abi.encodePacked(
+            '{"name": "OpenSea Creatures", "description": "OpenSea Creatures are adorable aquatic beings primarily for demonstrating what can be done using the OpenSea platform. Adopt one today to try out all the OpenSea buying, selling, and bidding feature set.", "image": "external-link-url/image.png", "external_link": "external-link-url", "seller_fee_basis_points": 100, # Indicates a 1% seller fee."fee_recipient": "0xA97F337c39cccE66adfeCB2BF99C1DdC54C2D721" # Where seller fees will be paid to.}'
         ))));
         return string(abi.encodePacked('data:application/json;base64,', json));
     }
