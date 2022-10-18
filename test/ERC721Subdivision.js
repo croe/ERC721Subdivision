@@ -6,128 +6,95 @@ const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 const { expect } = require("chai");
 
 describe("ERC721Subdivision", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
   async function deployFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
-
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
-
-    // Contracts are deployed using the first signer/account by default
     const [owner, otherAccount] = await ethers.getSigners();
+    const artist = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+    const executive = [
+      '0x71bE63f3384f5fb98995898A86B02Fb2426c5788',
+      '0xFABB0ac9d68B0B445fB7357272Ff202C5651694a',
+      '0x1CBd3b2770909D4e10f157cABC84C7264073C9Ec',
+    ]
+    const closingTime = 1659285295
+    const baseURI = 'https://mf22.3331.jp/'
+    const basePrice = [
+      // ETH換算でいれる -> どうやってやるか
+      // ethers.utils.BigNumber.from(1000000000000000000),
+      // ethers.utils.BigNumber.from(2000000000000000000),
+      // ethers.utils.BigNumber.from(3000000000000000000),
+      ethers.BigNumber.from('1000000000000000000'),
+      ethers.BigNumber.from('2000000000000000000'),
+      ethers.BigNumber.from('3000000000000000000'),
+    ]
+
+    const tempTotalEdition = [0, 0, 0]
 
     const ERC721Subdivision = await ethers.getContractFactory("ERC721Subdivision");
-    const contract = await ERC721Subdivision.deploy('Brave New Commons', 'BNC', owner.address, 10000000000, 1659285295);
-    return { contract, unlockTime, lockedAmount, owner, otherAccount };
+    const contract = await ERC721Subdivision.deploy(
+      'My First Digital Data',
+      'MFDD',
+      baseURI,
+      artist,
+      executive,
+      basePrice,
+      tempTotalEdition,
+      closingTime,
+    );
+    return { contract, owner, otherAccount };
   }
 
   describe("Deployment", function () {
     it("Should default totalSupply is zero", async function () {
       const { contract } = await loadFixture(deployFixture);
-      expect(await contract.name()).to.equal("Brave New Commons");
-      expect(await contract.symbol()).to.equal("BNC");
+      expect(await contract.name()).to.equal("My First Digital Data");
+      expect(await contract.symbol()).to.equal("MFDD");
       expect(await contract.totalSupply()).to.equal(0);
-    });
+    })
 
     it("Should set the right owner", async function () {
       const { contract, owner } = await loadFixture(deployFixture);
-
       expect(await contract.owner()).to.equal(owner.address);
-    });
-
-    it("Should set the right recipient", async function () {
-      const { contract, owner } = await loadFixture(deployFixture);
-
-      expect(await contract.latestPrice()).to.equal(10000000000);
-    });
-
-    it("Buy token", async function () {
-      const { contract, owner, lockedAmount } = await loadFixture(deployFixture);
-      const openTx = await contract.connect(owner).setClosingTime(1661958000);
-      const mint0Tx = await contract.connect(owner).buy({value: 10000000000});
-      await mint0Tx.wait();
-      const token0 = await contract.tokenURI(1);
-      console.log(token0);
-      expect(await contract.totalSupply()).to.eq(1);
-      const mint1Tx = await contract.connect(owner).buy({value: 5000000000});
-      await mint1Tx.wait();
-      const token1 = await contract.tokenURI(2);
-      console.log(token1);
-      expect(await contract.totalSupply()).to.eq(2);
-      const closeTx = await contract.connect(owner).setClosingTime(1659285295);
-      // console.log(refundTx);
-      expect(await contract.connect(owner).getRefund()).to.changeEtherBalances(
-        [owner, contract],
-        [10000000000, -10000000000]
-      );
     })
 
-    // it("Should fail if the unlockTime is not in the future", async function () {
-    //   // We don't use the fixture here because we want a different deployment
-    //   const latestTime = await time.latest();
-    //   const contract = await ethers.getContractFactory("ERC721Subdivision");
-    //   await expect(contract.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-    //     "Unlock time should be in the future"
-    //   );
+    it('Should mint when before close', async function () {
+      const { contract, owner, otherAccount} = await loadFixture(deployFixture)
+      await contract.connect(owner).setClosingTime(1679285295)
+      const tx1 = await contract.connect(otherAccount).buy(0, {value: ethers.BigNumber.from('1000000000000000000')})
+      tx1.wait()
+      console.log(await contract.tokenURI(1))
+      expect(await contract.totalSupply()).to.equal(1)
+    })
+
+    it('Should refund when after close', async function () {
+      const { contract, owner, otherAccount } = await loadFixture(deployFixture)
+      await contract.connect(owner).setClosingTime(1679285295)
+      const tx1 = await contract.connect(otherAccount).buy(0, {value: ethers.BigNumber.from('1000000000000000000')})
+      tx1.wait()
+      const tx2 = await contract.connect(owner).buy(0, {value: ethers.BigNumber.from('500000000000000000')})
+      await contract.connect(owner).setClosingTime(1659285295)
+      tx2.wait()
+      console.log('oa: ', await otherAccount.getBalance())
+      console.log(await contract.provider.getBalance(contract.address))
+      const tx3 = await contract.connect(otherAccount).refund()
+      tx3.wait()
+      await contract.connect(owner).setContractURI('http://example.com')
+      console.log('ow: ', await owner.getBalance())
+      console.log('oa: ', await otherAccount.getBalance())
+      console.log(await contract.contractURI())
+      console.log(await contract.getEditionFromToken(0))
+      console.log(await contract.provider.getBalance(contract.address))
+      expect(await contract.totalSupply()).to.equal(2)
+    })
+
+    it('should withdraw correctly', async function () {
+      const { contract, owner, otherAccount } = await loadFixture(deployFixture)
+      await contract.connect(owner).setClosingTime(1679285295)
+    })
+
+    // it("Should set the contract uri", async function () {
+    //   const { contract, owner } = await loadFixture(deployFixture);
+    //
+    //   await contract.setContractURI = 'https://mf22.3331.jp'
+    //   expect(await  contract.contractURI).to.equal('https://mf22.3331.jp')
     // });
   });
-
-  // describe("Withdrawals", function () {
-  //   describe("Validations", function () {
-  //     it("Should revert with the right error if called too soon", async function () {
-  //       const { contract } = await loadFixture(deployFixture);
-  //
-  //       await expect(contract.withdraw()).to.be.revertedWith("You can't withdraw yet");
-  //     });
-  //
-  //     it("Should revert with the right error if called from another account", async function () {
-  //       const { contract, unlockTime, otherAccount } = await loadFixture(deployFixture);
-  //
-  //       // We can increase the time in Hardhat Network
-  //       await time.increaseTo(unlockTime);
-  //
-  //       // We use lock.connect() to send a transaction from another account
-  //       await expect(contract.connect(otherAccount).withdraw()).to.be.revertedWith(
-  //         "You aren't the owner"
-  //       );
-  //     });
-  //
-  //     it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-  //       const { contract, unlockTime } = await loadFixture(deployFixture);
-  //
-  //       // Transactions are sent using the first signer by default
-  //       await time.increaseTo(unlockTime);
-  //
-  //       await expect(contract.withdraw()).not.to.be.reverted;
-  //     });
-  //   });
-  //
-  //   describe("Events", function () {
-  //     it("Should emit an event on withdrawals", async function () {
-  //       const { contract, unlockTime, lockedAmount } = await loadFixture(deployFixture);
-  //
-  //       await time.increaseTo(unlockTime);
-  //
-  //       await expect(contract.withdraw())
-  //         .to.emit(contract, "Withdrawal")
-  //         .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-  //     });
-  //   });
-  //
-  //   describe("Transfers", function () {
-  //     it("Should transfer the funds to the owner", async function () {
-  //       const { contract, unlockTime, lockedAmount, owner } = await loadFixture(deployFixture);
-  //
-  //       await time.increaseTo(unlockTime);
-  //
-  //       await expect(contract.withdraw()).to.changeEtherBalances(
-  //         [owner, contract],
-  //         [lockedAmount, -lockedAmount]
-  //       );
-  //     });
-  //   });
-  // });
 });
